@@ -1,4 +1,3 @@
-cat << 'LOGS_EOF' > /root/scripts/logs.sh
 #!/bin/bash
 clear
 export TZ='Europe/Moscow'
@@ -61,4 +60,3 @@ case $action in
     ;;
 esac
 exit 0
-LOGS_EOF
