@@ -1,4 +1,3 @@
-cat << 'CHECK_EOF' > /root/scripts/system_report.sh
 #!/bin/bash
 RED='\033[0;31m'; NC='\033[0m'
 echo "=========================================="
@@ -62,4 +61,3 @@ else
     fi
 fi
 echo "=========================================="
-CHECK_EOF
