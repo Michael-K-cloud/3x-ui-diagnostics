@@ -32,8 +32,8 @@ echo -e "${YELLOW}⏳ Создание директории /root/scripts...${NC
 mkdir -p /root/scripts
 
 # 4. Настройки GitHub (ЗАМЕНИТЕ НА ВАШИ ДАННЫЕ!)
-GITHUB_USER="ВАШ_ЛОГИН"
-GITHUB_REPO="ВАШ_РЕПОЗИТОРИЙ"
+GITHUB_USER="Michael-K-cloud"
+GITHUB_REPO="3x-ui-diagnostics"
 BRANCH="main"
 
 RAW_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
