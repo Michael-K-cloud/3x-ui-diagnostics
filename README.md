@@ -74,10 +74,10 @@ mkdir -p /root/scripts
 # 3. Скачивание скриптов
 ```bash
 cd /root/scripts
-wget https://raw.githubusercontent.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/main/system_report.sh
-wget https://raw.githubusercontent.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/main/fail2ban.sh
-wget https://raw.githubusercontent.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/main/logs.sh
-wget https://raw.githubusercontent.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/main/main.sh
+wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/system_report.sh
+wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/fail2ban.sh
+wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/logs.sh
+wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/main.sh
 ```
 # 4. Настройка прав и создание команды menu
 ```bash
@@ -132,7 +132,7 @@ MIT License — свободное использование и модифик�
 ---
 
 **⚠️ Важно:** Перед использованием на своих серверах обязательно изучите содержимое скриптов и убедитесь, что они соответствуют вашим требованиям безопасности.
-```
+
 
 
 
