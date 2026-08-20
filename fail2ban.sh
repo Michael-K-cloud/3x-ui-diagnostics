@@ -1,4 +1,3 @@
-cat << 'F2B_EOF' > /root/scripts/fail2ban.sh
 #!/bin/bash
 export TZ='Europe/Moscow'
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; WHITE='\033[0;37m'; BRIGHT_WHITE='\033[1;37m'; NC='\033[0m'
@@ -52,4 +51,3 @@ if [ -n "$OLDEST_TS" ] && [ "$OLDEST_TS" != "0" ]; then
 else
     echo -e "${YELLOW}База пуста или недоступна${NC}"
 fi
-F2B_EOF
