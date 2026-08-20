@@ -52,7 +52,7 @@
 ## 🚀 Быстрая установка (одной командой)
 
 ```bash
-bash <(wget -qO- https://raw.githubusercontent.com/ВАШ_ЛОГИН/ВАШ_РЕПОЗИТОРИЙ/main/install.sh)
+bash <(wget -qO- https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/install.sh)
 ```
 
 После установки запустите:
