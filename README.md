@@ -63,15 +63,15 @@ menu
 # 🔧 Ручная установка
 
 
-#№  1. Установка зависимостей
+##  1. Установка зависимостей
 ```bash
 apt update && apt install sqlite3 sysstat -y
 ```
-#№  2. Создание директории
+##  2. Создание директории
 ```bash
 mkdir -p /root/scripts
 ```
-#№  3. Скачивание скриптов
+##  3. Скачивание скриптов
 ```bash
 cd /root/scripts
 wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/system_report.sh
@@ -79,12 +79,12 @@ wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/fa
 wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/logs.sh
 wget https://raw.githubusercontent.com/Michael-K-cloud/3x-ui-diagnostics/main/main.sh
 ```
-#№  4. Настройка прав и создание команды menu
+##  4. Настройка прав и создание команды menu
 ```bash
 chmod +x /root/scripts/*.sh
 ln -sf /root/scripts/main.sh /usr/local/bin/menu
 ```
-#№  5. Запуск
+##  5. Запуск
 ```bash
 menu
 ```
