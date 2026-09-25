@@ -151,6 +151,49 @@ menu_ports() {
   done
 }
 
+ww_find_script() {
+  WW=""
+  for p in "$DIR/wal-watch.sh" /root/wal-watch.sh; do
+    [ -f "$p" ] && WW="$p" && break
+  done
+}
+
+ww_header() {
+  ww_find_script
+  CRON=$(crontab -l 2>/dev/null | grep wal-watch | head -1)
+  LOG=/root/wal-watch.log
+  echo -e "${WHITE}=== Статус ===${NC}"
+  if [ -n "$WW" ]; then echo -e "Скрипт: ${GREEN}есть${NC} ($WW)"; else echo -e "Скрипт: ${RED}нет${NC} (запустите install.sh из репозитория)"; fi
+  if [ -n "$CRON" ]; then echo -e "Cron:   ${GREEN}включён${NC} ($CRON)"; else echo -e "Cron:   ${YELLOW}выключен${NC}"; fi
+  if [ -f "$LOG" ]; then
+    LINES=$(wc -l < "$LOG")
+    ANOM=$(grep -cE "DELETED|err5m=[1-9]|wal=-" "$LOG")
+    if [ "$ANOM" = "0" ]; then
+      echo -e "Лог:    $LINES замеров, аномалии: ${GREEN}0${NC}"
+    else
+      echo -e "Лог:    $LINES замеров, аномалии: ${RED}$ANOM${NC}"
+    fi
+    echo -e "${WHITE}=== Последний замер ===${NC}"
+    tail -1 "$LOG"
+  else
+    echo -e "Лог:    ещё не создан"
+  fi
+}
+
+ww_enable() {
+  ww_find_script
+  if [ -z "$WW" ]; then
+    echo -e "${RED}❌ Скрипт сторожа не найден. Запустите install.sh из репозитория 3x-ui-diagnostics.${NC}"
+    return 1
+  fi
+  chmod +x "$WW"
+  ( crontab -l 2>/dev/null | grep -v 'wal-watch.sh' ; echo "*/5 * * * * $WW" ) | crontab -
+  "$WW"
+  echo -e "${GREEN}✅ Сторож включён.${NC}"
+  echo -e "Строка cron: $(crontab -l | grep wal-watch)"
+  echo -e "Первый замер: $(tail -1 /root/wal-watch.log)"
+}
+
 menu_walwatch() {
   while true; do
     clear
@@ -158,57 +201,43 @@ menu_walwatch() {
     echo -e "${PINK}  WAL-СТОРОЖ (контроль базы данных x-ui)${NC}"
     echo -e "${PINK}==========================================${NC}"
     echo ""
-    WW=""
-    for p in "$DIR/wal-watch.sh" /root/wal-watch.sh; do
-      [ -f "$p" ] && WW="$p" && break
-    done
-    CRON=$(crontab -l 2>/dev/null | grep wal-watch | head -1)
-    LOG=/root/wal-watch.log
-    echo -e "${WHITE}=== Статус ===${NC}"
-    if [ -n "$WW" ]; then echo -e "Скрипт: ${GREEN}есть${NC} ($WW)"; else echo -e "Скрипт: ${RED}нет${NC} (установите install.sh из репозитория)"; fi
-    if [ -n "$CRON" ]; then echo -e "Cron:   ${GREEN}включён${NC} ($CRON)"; else echo -e "Cron:   ${YELLOW}выключен${NC}"; fi
-    if [ -f "$LOG" ]; then
-      LINES=$(wc -l < "$LOG")
-      ANOM=$(grep -cE "DELETED|err5m=[1-9]|wal=-" "$LOG")
-      if [ "$ANOM" = "0" ]; then
-        echo -e "Лог:    $LINES замеров, аномалии: ${GREEN}0${NC}"
-      else
-        echo -e "Лог:    $LINES замеров, аномалии: ${RED}$ANOM${NC}"
-      fi
-      echo ""
-      echo -e "${WHITE}=== Последние 5 замеров ===${NC}"
-      tail -5 "$LOG"
-    else
-      echo -e "Лог:    ещё не создан"
-    fi
+    ww_header
     echo ""
-    echo -e "  ${GREEN}1.${NC} 📋 Показать лог (последние 30 строк)"
-    echo -e "  ${GREEN}2.${NC} ▶️  Включить сторож (cron каждые 5 минут)"
-    echo -e "  ${GREEN}3.${NC} ⏹  Выключить сторож (убрать из cron, лог сохранится)"
+    echo -e "  ${GREEN}1.${NC} 📊 Статус (подробно: скрипт, cron, лог, последние 10 замеров)"
+    echo -e "  ${GREEN}2.${NC} 📋 Лог (последние 30 строк)"
+    echo -e "  ${GREEN}3.${NC} ▶️  Включить (cron каждые 5 минут + первый замер)"
+    echo -e "  ${GREEN}4.${NC} ⏹  Выключить (убрать из cron, лог сохранится)"
+    echo -e "  ${GREEN}5.${NC} 🔄 Перезапустить (перезаписать cron-строку + замер сейчас)"
+    echo -e "  ${GREEN}6.${NC} 🌐 HTML-отчёт по сторожу (ссылка)"
     echo -e "  ${GREEN}0.${NC} ← Назад (или Enter)"
     echo ""
     read -p "  Ваш выбор: " c
     case $c in
       1)
         echo ""
-        if [ -f "$LOG" ]; then tail -30 "$LOG"; else echo "Лога ещё нет"; fi
+        ww_find_script
+        if [ -n "$WW" ]; then echo "Скрипт: $WW"; sha256sum "$WW"; else echo "Скрипт не найден"; fi
+        echo "Cron: $(crontab -l 2>/dev/null | grep wal-watch || echo 'не установлен')"
+        if [ -f /root/wal-watch.log ]; then
+          echo "Всего замеров: $(wc -l < /root/wal-watch.log)"
+          echo "Аномалии (DELETED / err5m>0 / wal=-): $(grep -cE 'DELETED|err5m=[1-9]|wal=-' /root/wal-watch.log)"
+          echo "--- Последние 10 замеров ---"
+          tail -10 /root/wal-watch.log
+        else
+          echo "Лога ещё нет"
+        fi
         pause;;
       2)
         echo ""
-        if [ -z "$WW" ]; then
-          echo -e "${RED}❌ Скрипт сторожа не найден. Запустите install.sh из репозитория 3x-ui-diagnostics.${NC}"
-        else
-          chmod +x "$WW"
-          ( crontab -l 2>/dev/null | grep -v 'wal-watch.sh' ; echo "*/5 * * * * $WW" ) | crontab -
-          "$WW"
-          echo -e "${GREEN}✅ Сторож включён.${NC}"
-          echo -e "Строка cron: $(crontab -l | grep wal-watch)"
-          echo -e "Первый замер: $(tail -1 "$LOG")"
-        fi
+        if [ -f /root/wal-watch.log ]; then tail -30 /root/wal-watch.log; else echo "Лога ещё нет"; fi
         pause;;
       3)
         echo ""
-        if [ -z "$CRON" ]; then
+        ww_enable
+        pause;;
+      4)
+        echo ""
+        if ! crontab -l 2>/dev/null | grep -q wal-watch; then
           echo "Сторож не включён в cron"
         else
           read -p "Выключить сторож? Строка cron будет удалена, лог сохранится (yes/no): " ans
@@ -219,6 +248,15 @@ menu_walwatch() {
             echo "Отменено"
           fi
         fi
+        pause;;
+      5)
+        echo ""
+        echo "Перезапуск: cron-строка перезаписывается, замер выполняется сразу."
+        ww_enable
+        pause;;
+      6)
+        echo ""
+        bash $DIR/report.sh wal
         pause;;
       0|""|" ") return;;
     esac
@@ -242,6 +280,7 @@ menu_etalon() {
     echo -e "  ${GREEN}2.${NC} 💾 Сохранить текущее состояние как эталон"
     echo -e "  ${GREEN}3.${NC} 🔍 Сравнить текущее состояние с эталоном"
     echo -e "  ${GREEN}4.${NC} 📊 Показать текущий снапшот (без сохранения)"
+    echo -e "  ${GREEN}5.${NC} 🌐 HTML-отчёт: сравнение с эталоном (ссылка)"
     echo -e "  ${GREEN}0.${NC} ← Назад (или Enter)"
     echo ""
     read -p "  Ваш выбор: " c
@@ -250,6 +289,72 @@ menu_etalon() {
       2) echo ""; bash $DIR/baseline.sh save; pause;;
       3) echo ""; bash $DIR/baseline.sh compare; pause;;
       4) echo ""; bash $DIR/baseline.sh now; pause;;
+      5) echo ""; bash $DIR/report.sh etalon; pause;;
+      0|""|" ") return;;
+    esac
+  done
+}
+
+menu_report() {
+  while true; do
+    clear
+    echo -e "${PINK}==========================================${NC}"
+    echo -e "${PINK}  HTML-ОТЧЁТЫ (страница + ссылка)${NC}"
+    echo -e "${PINK}==========================================${NC}"
+    echo ""
+    echo -e "  ${GREEN}1.${NC} 📊 Отчёт о состоянии сервера"
+    echo -e "  ${GREEN}2.${NC} 🛡 Отчёт по WAL-сторожу"
+    echo -e "  ${GREEN}3.${NC} 📌 Сравнение с эталоном"
+    echo -e "  ${GREEN}4.${NC} 🛡 Отчёт по fail2ban"
+    echo -e "  ${GREEN}5.${NC} 📋 Отсортированные логи за N часов"
+    echo -e "  ${GREEN}0.${NC} ← Назад (или Enter)"
+    echo ""
+    read -p "  Ваш выбор: " c
+    case $c in
+      1) echo ""; bash $DIR/report.sh status; pause;;
+      2) echo ""; bash $DIR/report.sh wal; pause;;
+      3) echo ""; bash $DIR/report.sh etalon; pause;;
+      4) echo ""; bash $DIR/report.sh fail2ban; pause;;
+      5)
+        echo ""
+        read -p "За сколько часов показать логи? (число, например 1, 6, 24; Enter = 24): " hrs
+        [[ "$hrs" =~ ^[0-9]+$ ]] || hrs=24
+        [ "$hrs" -eq 0 ] && hrs=24
+        bash $DIR/report.sh logs "$hrs"
+        pause;;
+      0|""|" ") return;;
+    esac
+  done
+}
+
+menu_diag() {
+  while true; do
+    clear
+    echo -e "${PINK}==========================================${NC}"
+    echo -e "${PINK}  ДИАГНОСТИКА СЕРВЕРА${NC}"
+    echo -e "${PINK}==========================================${NC}"
+    echo ""
+    echo -e "  ${GREEN}1.${NC} 📊 Отчет о состоянии сервера (статус панели, БД, CPU, память, диск, ошибки)"
+    echo -e "  ${GREEN}2.${NC} 🛡 WAL-сторож (контроль базы x-ui каждые 5 минут: статус, лог, вкл/выкл)"
+    echo -e "  ${GREEN}3.${NC} 📈 htop (диспетчер задач)"
+    echo -e "  ${GREEN}4.${NC} 📌 Эталон сервера (сохранить / сравнить опорное состояние)"
+    echo -e "  ${GREEN}5.${NC} 🌐 HTML-отчёты (создать страницу и получить ссылку)"
+    echo -e "  ${GREEN}0.${NC} ← Назад (или Enter)"
+    echo ""
+    read -p "  Ваш выбор: " c
+    case $c in
+      1) bash $DIR/system_report.sh; pause;;
+      2) menu_walwatch;;
+      3)
+        if command -v htop >/dev/null 2>&1; then
+          htop
+        else
+          echo ""
+          echo -e "${RED}htop не установлен. Команда для установки: apt install -y htop${NC}"
+          pause
+        fi;;
+      4) menu_etalon;;
+      5) menu_report;;
       0|""|" ") return;;
     esac
   done
@@ -261,20 +366,17 @@ while true; do
   echo -e "${PINK}   МЕНЮ УПРАВЛЕНИЯ СЕРВЕРОМ${NC}"
   echo -e "${PINK}==========================================${NC}"
   echo ""
-  echo -e "  ${GREEN}1.${NC} 📊 Отчет о состоянии сервера (статус панели, CPU, память, диск, ошибки)"
+  echo -e "  ${GREEN}1.${NC} 🔎 Диагностика сервера (отчёт, WAL-сторож, htop, эталон, HTML-отчёты)"
   echo -e "  ${GREEN}2.${NC} 🔃 Перезагрузка сервера (полная перезагрузка VPS)"
   echo -e "  ${GREEN}3.${NC} 🛠  Управление панелью X-UI и Xray (перезапуск, статус)"
   echo -e "  ${GREEN}4.${NC} 🔌 Управление портами (проверка, открытие, закрытие, файрвол)"
   echo -e "  ${GREEN}5.${NC} 📋 Логи (просмотр / очистка)"
   echo -e "  ${GREEN}6.${NC} 🚀 Запуск меню x-ui (родное меню управления панелью)"
-  echo -e "  ${GREEN}7.${NC} 🛡 WAL-сторож (контроль базы данных: статус, лог, вкл/выкл)"
-  echo -e "  ${GREEN}8.${NC} 📈 htop (живой мониторинг процессов и ресурсов)"
-  echo -e "  ${GREEN}9.${NC} 📌 Эталон сервера (сохранить / сравнить опорное состояние)"
   echo -e "  ${GREEN}0.${NC} Выход"
   echo ""
   read -p "  Выберите пункт: " c
   case $c in
-    1) bash $DIR/system_report.sh; pause;;
+    1) menu_diag;;
     2)
       echo ""
       echo -e "${PINK}⚠️ Внимание ⚠️${NC}"
@@ -296,16 +398,6 @@ while true; do
     4) menu_ports;;
     5) bash $DIR/logs.sh; pause;;
     6) x-ui; pause;;
-    7) menu_walwatch;;
-    8)
-      if command -v htop >/dev/null 2>&1; then
-        htop
-      else
-        echo ""
-        echo -e "${RED}htop не установлен. Команда для установки: apt install -y htop${NC}"
-        pause
-      fi;;
-    9) menu_etalon;;
     0) echo "Выход..."; exit 0;;
     *) echo -e "${RED}Неверный выбор${NC}"; sleep 1;;
   esac
