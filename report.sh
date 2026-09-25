@@ -1,31 +1,55 @@
 #!/bin/bash
-# Генератор HTML-отчётов для просмотра по ссылке (из меню и из Telegram-бота).
+# Генератор HTML-отчётов (версия 2.3, 25.09.2026).
+# Публикация БЕЗ правки nginx: отчёты кладутся в каталог заглушки (webroot),
+# который nginx УЖЕ отдаёт как статику. Адрес: https://<webDomain>/<секрет>/latest-<тип>.html
+#
 # Использование:  bash /root/scripts/report.sh {status|wal|etalon|fail2ban|logs} [часы]
-# Файлы:          /var/www/report/<REPORT_PATH>/latest-<тип>.html (+ копия с датой)
-# Ссылка:         https://<webDomain>/report/<REPORT_PATH>/latest-<тип>.html
-# Секретная часть URL (REPORT_PATH) создаётся автоматически при первом запуске
-# и хранится в /root/scripts/.env (права 600). Без настройки nginx location /report/
-# ссылка работать не будет — см. README (раздел «HTML-отчёты»).
+#
+# Каталог webroot определяется автоматически из vhost-конфига nginx основного домена
+# (директива root). Переопределение: REPORT_WEBROOT=... в /root/scripts/.env
+# Секретная часть URL (REPORT_PATH) создаётся при первом запуске, хранится в .env (600).
 # Все обращения к БД — только чтение (mode=ro&immutable=1), безопасно на живой панели.
 export TZ='Europe/Moscow'
 DIR="/root/scripts"
 ENVF="$DIR/.env"
-WEBROOT="/var/www/report"
 DB=/etc/x-ui/x-ui.db
 LOG=/root/wal-watch.log
 
-# --- .env: секретная часть URL ---
+# --- .env: секретная часть URL и (опционально) webroot ---
 [ -f "$ENVF" ] && . "$ENVF" 2>/dev/null
 if [ -z "$REPORT_PATH" ]; then
   REPORT_PATH=$(openssl rand -hex 6 2>/dev/null || head -c 16 /dev/urandom | md5sum | cut -c1-12)
   touch "$ENVF"; chmod 600 "$ENVF"
   echo "REPORT_PATH=$REPORT_PATH" >> "$ENVF"
 fi
-OUT="$WEBROOT/$REPORT_PATH"
-mkdir -p "$OUT"
 
 DOMAIN=$(sqlite3 "file:$DB?mode=ro&immutable=1" "SELECT value FROM settings WHERE key='webDomain';" 2>/dev/null)
 [ -z "$DOMAIN" ] && DOMAIN=$(hostname -f 2>/dev/null || hostname)
+
+# --- Определение webroot (каталог заглушки) ---
+detect_webroot() {
+  local vh=""
+  vh=$(grep -lE "server_name[^;]*${DOMAIN}" /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf 2>/dev/null | head -1)
+  [ -z "$vh" ] && vh=$(grep -lE "server_name[^;]*${DOMAIN}" /etc/nginx/sites-enabled/* 2>/dev/null | head -1)
+  if [ -n "$vh" ]; then
+    awk '/^[[:space:]]*root[[:space:]]/{gsub(/;/,""); print $2; exit}' "$vh"
+  fi
+}
+
+WEB="$REPORT_WEBROOT"
+[ -z "$WEB" ] && WEB=$(detect_webroot)
+[ -z "$WEB" ] && [ -d /var/www/html ] && WEB=/var/www/html
+WEB="${WEB%/}"
+
+if [ -n "$WEB" ] && [ -d "$WEB" ]; then
+  OUT="$WEB/$REPORT_PATH"
+  SERVED=1
+else
+  # запасной вариант: webroot не найден — пишем в /var/www/report (ссылка открываться НЕ будет)
+  OUT="/var/www/report/$REPORT_PATH"
+  SERVED=0
+fi
+mkdir -p "$OUT"
 
 html_wrap() { # $1=заголовок; содержимое — из stdin
   local title="$1"
@@ -155,7 +179,7 @@ case "$TYPE" in
     TITLE="Отсортированные логи x-ui за ${HOURS} ч"; BASE="logs-${HOURS}h";;
 esac
 
-STAMP=$(date -u +%F_%H-%M%S)
+STAMP=$(date -u +%F_%H%M%S)
 BODY=$(mktemp)
 case "$TYPE" in
   status)   gen_status > "$BODY";;
@@ -174,9 +198,12 @@ rm -f "$BODY"
 # Хранить не более 30 копий каждого типа
 ls -1t "$OUT"/*-"$BASE".html 2>/dev/null | grep -v latest | tail -n +31 | xargs -r rm -f
 
-URL="https://$DOMAIN/report/$REPORT_PATH/latest-$BASE.html"
 echo "✅ Отчёт сформирован: $TITLE"
-echo "Файл:  $FILE"
-echo "Ссылка: $URL"
-echo ""
-echo "Если ссылка не открывается — на этом сервере ещё не настроен nginx location /report/ (см. README, раздел «HTML-отчёты»)."
+echo "Каталог: $OUT (webroot заглушки: ${WEB:-не определён})"
+echo "Файл:    $FILE"
+if [ "$SERVED" = "1" ]; then
+  echo "Ссылка:  https://$DOMAIN/$REPORT_PATH/latest-$BASE.html?v=$(date +%s)"
+else
+  echo "⚠️ Webroot заглушки не найден — файл сохранён в $OUT, но по ссылке НЕ откроется."
+  echo "   Укажите каталог вручную: добавьте строку REPORT_WEBROOT=/путь/в/webroot в $ENVF"
+fi
