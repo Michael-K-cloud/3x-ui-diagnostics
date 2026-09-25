@@ -17,16 +17,29 @@ echo ""
 echo -e "  ${GREEN}1.${NC} 📋 Просмотр отсортированных логов (ERROR, WARNING, INFO за период)"
 echo -e "  ${GREEN}2.${NC} 🧹 Очистка логов (удалить старые записи journald)"
 echo -e "  ${GREEN}3.${NC} 🛡  Отчёт по fail2ban (заблокированные IP и статистика блокировок)"
+echo -e "  ${GREEN}4.${NC} 🌐 HTML-отчёт: отсортированные логи за N часов (ссылка)"
 echo -e "  ${GREEN}0.${NC} ← Назад (или Enter)"
 read -p "Ваш выбор: " action
 case $action in
   1)
     echo ""
-    read -p "Сколько часов логов показать? (введите число, например 1, 6, 24, 72; Enter = 24): " hours
-    [[ "$hours" =~ ^[0-9]+$ ]] || hours=24
-    [ "$hours" -eq 0 ] && hours=24
-    SINCE="$hours hours ago"
-    echo "Период: последние $hours ч"
+    echo "Выберите период:"
+    echo -e "  ${GREEN}1.${NC} Последний час"
+    echo -e "  ${GREEN}2.${NC} Последние 6 часов"
+    echo -e "  ${GREEN}3.${NC} Ввести кол-во часов"
+    read -p "Ваш выбор: " period
+    case $period in
+      1) SINCE="1 hour ago"; HRS=1;;
+      2) SINCE="6 hours ago"; HRS=6;;
+      3)
+        read -p "Сколько часов логов показать? (введите число, например 12, 24, 72): " hours
+        [[ "$hours" =~ ^[0-9]+$ ]] || { echo -e "${RED}❌ Введено не число, беру 24 часа${NC}"; hours=24; }
+        [ "$hours" -eq 0 ] && hours=24
+        SINCE="$hours hours ago"; HRS=$hours;;
+      *) SINCE="24 hours ago"; HRS=24;;
+    esac
+    echo ""
+    echo "Период: последние $HRS ч"
     echo ""
     echo -e "${RED}========== ОШИБКИ (ERROR) ==========${NC}"
     journalctl -u x-ui --since "$SINCE" --no-pager | grep -E "ERROR|error" | tail -30
@@ -52,6 +65,13 @@ case $action in
     ;;
   3)
     bash $DIR/fail2ban.sh
+    ;;
+  4)
+    echo ""
+    read -p "За сколько часов собрать логи? (число, например 1, 6, 24; Enter = 24): " hrs
+    [[ "$hrs" =~ ^[0-9]+$ ]] || hrs=24
+    [ "$hrs" -eq 0 ] && hrs=24
+    bash $DIR/report.sh logs "$hrs"
     ;;
 esac
 exit 0
