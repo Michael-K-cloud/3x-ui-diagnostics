@@ -1,5 +1,5 @@
 #!/bin/bash
-# Генератор HTML-отчётов (версия 2.3, 25.09.2026).
+# Генератор HTML-отчётов (версия 2.4, 25.09.2026).
 # Публикация БЕЗ правки nginx: отчёты кладутся в каталог заглушки (webroot),
 # который nginx УЖЕ отдаёт как статику. Адрес: https://<webDomain>/<секрет>/latest-<тип>.html
 #
@@ -60,7 +60,8 @@ html_wrap() { # $1=заголовок; содержимое — из stdin
   echo "</head><body>"
   echo "<h2>$title</h2>"
   echo "<pre>"
-  sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+  # сначала снимаем терминальные цвета (ANSI) и \r, потом экранируем HTML
+  sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/\x1b([A-Z0-9])//g' -e 's/\r//g' -e 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
   echo "</pre>"
   echo "<footer>Сервер: $DOMAIN · Сформировано: $(date '+%F %T %Z')</footer>"
   echo "</body></html>"
@@ -152,14 +153,22 @@ gen_logs() {
   local hrs="${1:-24}"
   echo "Период: последние $hrs ч (x-ui)"
   echo ""
-  echo "========== ОШИБКИ (ERROR), последние 200 =========="
-  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep -E "ERROR|error" | tail -200
+  echo "========== СВОДКА: самые частые записи (дубли схлопнуты) =========="
+  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null \
+    | grep -E "WARNING|ERROR|error" \
+    | sed -E 's/^[A-Za-z]{3} +[0-9]+ [0-9:]{8} [^ ]+ [^:]+: //; s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/IP:PORT/g; s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/IP/g' \
+    | sort | uniq -c | sort -rn | head -20
   echo ""
-  echo "========== ПРЕДУПРЕЖДЕНИЯ (WARNING), последние 200 =========="
-  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep "WARNING" | tail -200
+  echo "========== ОШИБКИ (ERROR) — все за период, до 100 =========="
+  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep -E "ERROR|error" | tail -100
   echo ""
-  echo "========== ИНФО (INFO), последние 100 =========="
-  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep "INFO" | tail -100
+  echo "========== ПРЕДУПРЕЖДЕНИЯ (WARNING) — последние 20 сырых =========="
+  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep "WARNING" | tail -20
+  echo ""
+  echo "========== ИНФО (INFO) — последние 50 =========="
+  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep "INFO" | tail -50
+  echo ""
+  echo "Примечание: массовые повторяющиеся WARNING про X-Forwarded-For (nginx передаёт запросы в xray) и про OCSP (в сертификате не указан OCSP-сервер) — штатные для схемы x-ui-pro, действий не требуют."
 }
 
 TYPE="$1"; HOURS="$2"
