@@ -38,22 +38,35 @@ BRANCH="main"
 
 RAW_URL="https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${BRANCH}"
 
-echo -e "${YELLOW}⏳ Скачивание скриптов из GitHub...${NC}"
+# ВАЖНО: только IPv4 + таймауты. Исходящий IPv6 на серверах может зависать
+# (проверено 25.09.2026 на FI): без --inet4-only wget виснет на raw.githubusercontent.com.
+WGET_OPTS="--inet4-only --timeout=20 --tries=2 -qO"
+FILES="system_report.sh fail2ban.sh logs.sh main.sh wal-watch.sh baseline.sh report.sh"
 
-wget -qO /root/scripts/system_report.sh "${RAW_URL}/system_report.sh"
-wget -qO /root/scripts/fail2ban.sh "${RAW_URL}/fail2ban.sh"
-wget -qO /root/scripts/logs.sh "${RAW_URL}/logs.sh"
-wget -qO /root/scripts/main.sh "${RAW_URL}/main.sh"
-wget -qO /root/scripts/wal-watch.sh "${RAW_URL}/wal-watch.sh"
-wget -qO /root/scripts/baseline.sh "${RAW_URL}/baseline.sh"
+echo -e "${YELLOW}⏳ Скачивание скриптов из GitHub (IPv4, таймаут 20 c)...${NC}"
 
-# 5. Проверка успешности скачивания
-if [ -f /root/scripts/main.sh ]; then
-    echo -e "${GREEN}✅ Скрипты успешно скачаны${NC}"
-else
-    echo -e "${RED}❌ Ошибка скачивания скриптов. Проверьте логин и имя репозитория в install.sh.${NC}"
-    exit 1
+FAIL=0
+for f in $FILES; do
+  if ! wget $WGET_OPTS "/root/scripts/$f" "${RAW_URL}/$f"; then
+    echo -e "${RED}❌ Не удалось скачать $f${NC}"
+    FAIL=1
+  fi
+done
+
+# 5. Проверка: все файлы скачаны и НЕ пустые (wget -O обрезает файл ещё до скачивания!)
+for f in $FILES; do
+  if [ ! -s "/root/scripts/$f" ]; then
+    echo -e "${RED}❌ Файл /root/scripts/$f пуст или не скачан${NC}"
+    FAIL=1
+  fi
+done
+
+if [ "$FAIL" = "1" ]; then
+  echo -e "${RED}❌ Установка прервана: часть файлов не скачалась.${NC}"
+  echo -e "${RED}⚠️ Прерванная установка могла ОБРЕЗАТЬ файлы в /root/scripts — повторите установку до успешного конца.${NC}"
+  exit 1
 fi
+echo -e "${GREEN}✅ Скрипты успешно скачаны${NC}"
 
 # 6. Настройка прав и создание команды menu
 echo -e "${YELLOW}⏳ Настройка прав доступа и создание команды 'menu'...${NC}"
@@ -70,8 +83,11 @@ echo -e "${YELLOW}  menu${NC}"
 echo ""
 echo "WAL-сторож (контроль базы данных x-ui) устанавливается,"
 echo "но НЕ включается автоматически. Чтобы включить:"
-echo -e "${YELLOW}  menu → пункт 7 (WAL-сторож) → пункт 2 (Включить)${NC}"
+echo -e "${YELLOW}  menu → 1 (Диагностика) → 2 (WAL-сторож) → 3 (Включить)${NC}"
+echo ""
+echo "HTML-отчёты по ссылкам: menu → 1 → 5. Чтобы ссылки открывались,"
+echo "нужно один раз настроить nginx location /report/ (см. README)."
 echo ""
 echo "Повторный запуск install.sh = безопасное обновление скриптов"
-echo "(cron и лог сторожа не затрагиваются)."
+echo "(cron, лог сторожа, .env и эталон не затрагиваются)."
 echo ""
