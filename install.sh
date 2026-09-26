@@ -16,8 +16,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-DIAG_VERSION="2.2"
-FILES="main.sh logs.sh system_report.sh fail2ban.sh wal-watch.sh baseline.sh report.sh"
+DIAG_VERSION="2.3"
+FILES="main.sh logs.sh system_report.sh fail2ban.sh wal-watch.sh baseline.sh report.sh tg-bot.py tg-bot-install.sh tg-diag-bot.service"
 GITHUB_USER="Michael-K-cloud"
 GITHUB_REPO="3x-ui-diagnostics"
 BRANCH="main"
@@ -126,6 +126,9 @@ echo -e "${YELLOW}  menu → 1 (Диагностика) → 2 (WAL-сторож)
 echo ""
 echo "HTML-отчёты по ссылкам: menu → 1 → 5. Чтобы ссылки открывались,"
 echo "нужно один раз настроить nginx location /report/ (см. README)."
+echo ""
+echo "Telegram-бот: заполните /root/scripts/.env (BOT_TOKEN, CHAT_ID) и выполните"
+echo -e "${YELLOW}  bash /root/scripts/tg-bot-install.sh${NC}"
 echo ""
 echo "Повторный запуск install.sh = безопасное обновление скриптов"
 echo "(cron, лог сторожа, .env и эталон не затрагиваются)."
