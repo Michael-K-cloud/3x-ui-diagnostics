@@ -58,26 +58,17 @@ echo ""
 echo "=========================================="
 echo "  СТАТУС ОШИБОК"
 echo "=========================================="
-LAST_ERRORS=$(journalctl -u x-ui --since "1440 minutes ago" -p err --no-pager | grep -vE "^-- |^$|No entries")
-if [ -z "$LAST_ERRORS" ]; then
+CRIT_COUNT=$(journalctl -u x-ui --since "1440 minutes ago" -p err --no-pager 2>/dev/null | grep -vE "^-- |^$|No entries" | wc -l)
+DB_ERRORS=$(journalctl -u x-ui --since "1440 minutes ago" --no-pager 2>/dev/null | grep -icE "malformed|disk I/O")
+if [ "$CRIT_COUNT" = "0" ]; then
     echo "✅ Критических ошибок за последние 24 часа нет"
 else
-    ERRORS=$(echo "$LAST_ERRORS" | wc -l)
-    echo "⚠️ Найдено критических ошибок: $ERRORS"
-    read -p "Показать список ошибок? (1 - да, 2 - нет): " choice
-    if [ "$choice" = "1" ]; then
-        echo "--- Последние ошибки из лога ---"
-        echo "$LAST_ERRORS"
-    fi
+    echo -e "${RED}⚠️ Критических ошибок за последние 24 часа: $CRIT_COUNT (подробно: menu → 5 → 1)${NC}"
 fi
-echo ""
-echo "Ошибки базы данных в логах x-ui (учитываются и WARNING):"
-DB_ERRORS=$(journalctl -u x-ui --since "1440 minutes ago" --no-pager 2>/dev/null | grep -icE "malformed|disk I/O")
 if [ "$DB_ERRORS" = "0" ] || [ -z "$DB_ERRORS" ]; then
-    echo "✅ Ошибок 'malformed / disk I/O' за последние 24 часа нет"
+    echo "✅ Ошибки базы данных в логах за последние 24 часа: нет"
 else
-    echo -e "${RED}❌ Найдено $DB_ERRORS записей 'malformed / disk I/O' за 24 часа!${NC}"
-    echo "--- Последние 5 таких записей: ---"
-    journalctl -u x-ui --since "1440 minutes ago" --no-pager 2>/dev/null | grep -iE "malformed|disk I/O" | tail -5
+    echo -e "${RED}❌ Ошибки базы данных в логах за последние 24 часа: $DB_ERRORS (malformed / disk I/O)!${NC}"
+    journalctl -u x-ui --since "1440 minutes ago" --no-pager 2>/dev/null | grep -iE "malformed|disk I/O" | tail -3
 fi
 echo "=========================================="
