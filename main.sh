@@ -286,7 +286,20 @@ menu_etalon() {
     read -p "  Ваш выбор: " c
     case $c in
       1) echo ""; bash $DIR/baseline.sh show; pause;;
-      2) echo ""; bash $DIR/baseline.sh save; pause;;
+      2)
+        echo ""
+        if [ -f "$DIR/etalon/etalon.txt" ]; then
+          echo -e "${YELLOW}⚠️ Эталон уже сохранён: $(head -1 "$DIR/etalon/etalon.txt")${NC}"
+          read -p "Перезаписать его текущим состоянием? (yes/no): " ans
+          if [ "$ans" = "yes" ]; then
+            bash $DIR/baseline.sh save
+          else
+            echo "Отменено — эталон не изменён"
+          fi
+        else
+          bash $DIR/baseline.sh save
+        fi
+        pause;;
       3) echo ""; bash $DIR/baseline.sh compare; pause;;
       4) echo ""; bash $DIR/baseline.sh now; pause;;
       5) echo ""; bash $DIR/report.sh etalon; pause;;
