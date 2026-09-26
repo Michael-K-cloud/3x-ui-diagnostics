@@ -1,9 +1,13 @@
 #!/bin/bash
-# Генератор HTML-отчётов (версия 2.4, 25.09.2026).
+# Генератор HTML-отчётов (версия 2.5, 25.09.2026).
 # Публикация БЕЗ правки nginx: отчёты кладутся в каталог заглушки (webroot),
 # который nginx УЖЕ отдаёт как статику. Адрес: https://<webDomain>/<секрет>/latest-<тип>.html
 #
 # Использование:  bash /root/scripts/report.sh {status|wal|etalon|fail2ban|logs} [часы]
+#
+# Каждый отчёт состоит из двух ярусов:
+#   «═══ КРАТКО ═══»   — несколько строк человеческим языком (для владельца и Telegram);
+#   «═══ ПОДРОБНО ═══» — полные данные (для диагностики).
 #
 # Каталог webroot определяется автоматически из vhost-конфига nginx основного домена
 # (директива root). Переопределение: REPORT_WEBROOT=... в /root/scripts/.env
@@ -45,7 +49,6 @@ if [ -n "$WEB" ] && [ -d "$WEB" ]; then
   OUT="$WEB/$REPORT_PATH"
   SERVED=1
 else
-  # запасной вариант: webroot не найден — пишем в /var/www/report (ссылка открываться НЕ будет)
   OUT="/var/www/report/$REPORT_PATH"
   SERVED=0
 fi
@@ -68,50 +71,78 @@ html_wrap() { # $1=заголовок; содержимое — из stdin
 }
 
 gen_status() {
-  echo "=== 1. Панель и база данных ==="
-  if systemctl is-active --quiet x-ui; then echo "✅ Панель x-ui: работает"; else echo "❌ Панель x-ui: НЕ работает!"; fi
-  DB_OK=$(sqlite3 "file:$DB?mode=ro&immutable=1" "PRAGMA integrity_check;" 2>&1 | head -1)
-  if [ "$DB_OK" = "ok" ]; then echo "✅ База данных: integrity_check ok"; else echo "❌ БАЗА ДАННЫХ ПОВРЕЖДЕНА: $DB_OK"; fi
-  sqlite3 "file:$DB?mode=ro&immutable=1" "SELECT '📊 inbounds: '||COUNT(*) FROM inbounds UNION ALL SELECT '📊 clients: '||COUNT(*) FROM clients UNION ALL SELECT '📊 client_inbounds: '||COUNT(*) FROM client_inbounds UNION ALL SELECT '📊 client_traffics: '||COUNT(*) FROM client_traffics UNION ALL SELECT '📊 nodes: '||COUNT(*) FROM nodes UNION ALL SELECT '📊 limit_ip>0: '||COUNT(*) FROM clients WHERE limit_ip>0;" 2>/dev/null
-  echo ""
-  echo "=== 2. Перезагрузка системы ==="
-  if [ -f /var/run/reboot-required ]; then echo "⚠️ Требуется перезагрузка"; else echo "✅ Перезагрузка не требуется"; fi
-  echo ""
-  echo "=== 3. Ресурсы ==="
+  local PANEL DBOK REB CPU_IDLE CPU MEM_LINE DISK_LINE UP XVER CRIT DBE
+  if systemctl is-active --quiet x-ui; then PANEL="✅ работает"; else PANEL="❌ НЕ работает"; fi
+  DBOK=$(sqlite3 "file:$DB?mode=ro&immutable=1" "PRAGMA integrity_check;" 2>&1 | head -1)
+  if [ "$DBOK" = "ok" ]; then DBOK="✅ цела"; else DBOK="❌ ПОВРЕЖДЕНА ($DBOK)"; fi
+  if [ -f /var/run/reboot-required ]; then REB="⚠️ нужна"; else REB="✅ не требуется"; fi
   CPU_IDLE=$(mpstat 1 1 2>/dev/null | awk '/Average:/ {print $NF}' | cut -d. -f1)
   [ -z "$CPU_IDLE" ] && CPU_IDLE=$(top -bn1 | grep '%Cpu' | awk '{print $8}' | cut -d. -f1)
   [ -z "$CPU_IDLE" ] && CPU_IDLE=0
-  echo "CPU: $((100 - CPU_IDLE))%"
-  free -m | awk '/Mem:/ {printf "RAM: занято %d%% (%d MB из %d MB), свободно %d MB\n", $3*100/$2, $3, $2, $7}'
-  df -h / | awk 'NR==2 {print "Диск /: занято "$3" из "$2" ("$5"), свободно "$4}'
-  echo "Аптайм: $(uptime -p | sed 's/up //')"
-  echo ""
-  echo "=== 4. Ошибки за 24 часа ==="
+  CPU=$((100 - CPU_IDLE))
+  MEM_LINE=$(free -m | awk '/Mem:/ {printf "%d%% (занято %d MB из %d MB, свободно %d MB)", $3*100/$2, $3, $2, $7}')
+  DISK_LINE=$(df -h / | awk 'NR==2 {print $5" (занято "$3" из "$2", свободно "$4")"}')
+  UP=$(uptime -p | sed 's/up //')
+  XVER=$(/usr/local/x-ui/bin/xray-linux-amd64 version 2>/dev/null | head -1)
   CRIT=$(journalctl -u x-ui --since "1440 minutes ago" -p err --no-pager 2>/dev/null | grep -vE "^-- |^$|No entries" | wc -l)
-  echo "Критических (приоритет err и выше): $CRIT"
   DBE=$(journalctl -u x-ui --since "1440 minutes ago" --no-pager 2>/dev/null | grep -icE "malformed|disk I/O")
-  echo "Ошибок БД (malformed / disk I/O, включая WARNING): $DBE"
-  if [ "$DBE" -gt 0 ] 2>/dev/null; then
-    echo "--- Последние 5 записей БД-ошибок: ---"
+
+  echo "═══ КРАТКО ═══"
+  echo "Панель: $PANEL · База данных: $DBOK"
+  echo "Перезагрузка системы: $REB"
+  echo "Сервер работает: $UP"
+  echo "CPU: ${CPU}% · RAM: $MEM_LINE"
+  echo "Диск /: $DISK_LINE"
+  if [ "$CRIT" = "0" ]; then echo "Критических ошибок за последние 24 часа: ✅ нет"; else echo "Критических ошибок за последние 24 часа: ⚠️ $CRIT"; fi
+  if [ "$DBE" = "0" ]; then echo "Ошибки базы данных в логах за последние 24 часа: ✅ нет"; else echo "Ошибки базы данных в логах за последние 24 часа: ❌ $DBE"; fi
+  echo ""
+  echo "═══ ПОДРОБНО ═══"
+  echo ""
+  echo "=== 1. Панель и база данных ==="
+  echo "Панель x-ui: $PANEL"
+  echo "База данных: $DBOK"
+  sqlite3 "file:$DB?mode=ro&immutable=1" "SELECT '📊 inbounds: '||COUNT(*) FROM inbounds UNION ALL SELECT '📊 clients: '||COUNT(*) FROM clients UNION ALL SELECT '📊 client_inbounds: '||COUNT(*) FROM client_inbounds UNION ALL SELECT '📊 client_traffics: '||COUNT(*) FROM client_traffics UNION ALL SELECT '📊 nodes: '||COUNT(*) FROM nodes UNION ALL SELECT '📊 limit_ip>0: '||COUNT(*) FROM clients WHERE limit_ip>0;" 2>/dev/null
+  echo ""
+  echo "=== 2. СТАТУС ОШИБОК ==="
+  if [ "$CRIT" = "0" ]; then echo "✅ Критических ошибок за последние 24 часа нет"; else echo "⚠️ Критических ошибок за последние 24 часа: $CRIT"; fi
+  if [ "$DBE" = "0" ]; then
+    echo "✅ Ошибки базы данных в логах за последние 24 часа: нет"
+  else
+    echo "❌ Ошибки базы данных в логах за последние 24 часа: $DBE (malformed / disk I/O)"
     journalctl -u x-ui --since "1440 minutes ago" --no-pager 2>/dev/null | grep -iE "malformed|disk I/O" | tail -5
   fi
   echo ""
-  echo "=== 5. Версии, сервисы, порты ==="
-  /usr/local/x-ui/bin/xray-linux-amd64 version 2>/dev/null | head -1
+  echo "=== 3. Ресурсы ==="
+  echo "CPU: ${CPU}%"
+  echo "RAM: $MEM_LINE"
+  echo "Диск /: $DISK_LINE"
+  echo "Аптайм: $UP"
+  echo ""
+  echo "=== 4. Версии, сервисы, порты ==="
+  echo "$XVER"
   echo "Сервисы: x-ui=$(systemctl is-active x-ui 2>/dev/null) nginx=$(systemctl is-active nginx 2>/dev/null) fail2ban=$(systemctl is-active fail2ban 2>/dev/null)"
   ss -tulnp 2>/dev/null | grep -E 'nginx|x-ui|xray' | awk '{print $1, $2, $5, $7}' | sort -u
 }
 
 gen_wal() {
-  echo "=== WAL-сторож: статус ==="
-  WW=""
+  local WW="" CRON LINES ANOM
   for p in "$DIR/wal-watch.sh" /root/wal-watch.sh; do [ -f "$p" ] && WW="$p" && break; done
-  if [ -n "$WW" ]; then echo "Скрипт: $WW"; sha256sum "$WW"; else echo "Скрипт: НЕ НАЙДЕН"; fi
   CRON=$(crontab -l 2>/dev/null | grep wal-watch | head -1)
-  if [ -n "$CRON" ]; then echo "Cron: включён ($CRON)"; else echo "Cron: ВЫКЛЮЧЕН"; fi
   if [ -f "$LOG" ]; then
-    echo "Всего замеров: $(wc -l < "$LOG")"
-    echo "Аномалии (DELETED / err5m>0 / wal=-): $(grep -cE 'DELETED|err5m=[1-9]|wal=-' "$LOG")"
+    LINES=$(wc -l < "$LOG")
+    ANOM=$(grep -cE "DELETED|err5m=[1-9]|wal=-" "$LOG")
+  fi
+
+  echo "═══ КРАТКО ═══"
+  if [ -n "$CRON" ]; then echo "Сторож: ✅ включён (замер каждые 5 минут)"; else echo "Сторож: ⚠️ ВЫКЛЮЧЕН"; fi
+  echo "Замеров в логе: ${LINES:-0} · Аномалии: ${ANOM:-0}"
+  [ -f "$LOG" ] && echo "Последний замер: $(tail -1 "$LOG")"
+  if [ "${ANOM:-0}" = "0" ]; then echo "Вердикт: ✅ база под наблюдением, тревог нет"; else echo "Вердикт: ❌ ЕСТЬ АНОМАЛИИ — смотри лог ниже"; fi
+  echo ""
+  echo "═══ ПОДРОБНО ═══"
+  if [ -n "$WW" ]; then echo "Скрипт: $WW"; sha256sum "$WW"; else echo "Скрипт: НЕ НАЙДЕН"; fi
+  if [ -n "$CRON" ]; then echo "Cron: $CRON"; else echo "Cron: не установлен"; fi
+  if [ -f "$LOG" ]; then
     echo "Первый замер: $(head -1 "$LOG")"
     echo ""
     echo "=== Последние 30 замеров ==="
@@ -123,18 +154,45 @@ gen_wal() {
 
 gen_etalon() {
   if [ ! -f "$DIR/etalon/etalon.txt" ]; then
-    echo "Эталон ещё не сохранён. Сохраните: menu → Диагностика → Эталон сервера → пункт 2."
+    echo "═══ КРАТКО ═══"
+    echo "⚠️ Эталон ещё не сохранён (menu → Диагностика → Эталон сервера → пункт 2). Ниже — текущий снапшот."
     echo ""
-    echo "=== Текущий снапшот ==="
+    echo "═══ ПОДРОБНО ═══"
     bash "$DIR/baseline.sh" now
     return
   fi
-  echo "Эталон: $(head -1 "$DIR/etalon/etalon.txt")"
+  local OUT N
+  OUT=$(bash "$DIR/baseline.sh" compare 2>&1)
+  N=$(echo "$OUT" | grep -cE '^[<>]')
+  echo "═══ КРАТКО ═══"
+  if [ "$N" = "0" ]; then
+    echo "✅ Отличий от эталона нет"
+  else
+    echo "⚠️ Отличий от эталона: $N строк (в списке ниже: «<» — эталон, «>» — текущее состояние)"
+  fi
+  echo "Эталон сохранён: $(head -1 "$DIR/etalon/etalon.txt" | sed 's/^# Снимок: //')"
   echo ""
-  bash "$DIR/baseline.sh" compare
+  echo "═══ ПОДРОБНО ═══"
+  echo "$OUT"
 }
 
 gen_fail2ban() {
+  echo "═══ КРАТКО ═══"
+  if ! command -v fail2ban-client >/dev/null 2>&1; then
+    echo "fail2ban не установлен"
+  else
+    local JAILS
+    JAILS=$(fail2ban-client status 2>/dev/null | grep 'Jail list' | sed 's/.*://; s/,/ /g')
+    for j in $JAILS; do
+      local CB TB
+      CB=$(fail2ban-client status "$j" 2>/dev/null | awk -F: '/Currently banned/{gsub(/[ \t]/,"",$2); print $2}')
+      TB=$(fail2ban-client status "$j" 2>/dev/null | awk -F: '/Total banned/{gsub(/[ \t]/,"",$2); print $2}')
+      echo "jail «$j»: сейчас забанено ${CB:-0} (всего за историю ${TB:-0})"
+    done
+    echo "(фоновый перебор SSH — обычное явление; баны sshd-jail — это работа защиты, не атака на вас лично)"
+  fi
+  echo ""
+  echo "═══ ПОДРОБНО ═══"
   echo "=== fail2ban: jails ==="
   fail2ban-client status 2>/dev/null || { echo "fail2ban не запущен"; return; }
   for j in $(fail2ban-client status 2>/dev/null | grep 'Jail list' | sed 's/.*://; s/,/ /g'); do
@@ -146,29 +204,41 @@ gen_fail2ban() {
     echo ""
     echo "=== Подробный отчёт (fail2ban.sh, ID клиентов) ==="
     timeout 15 bash "$DIR/fail2ban.sh" </dev/null 2>&1
+    echo ""
+    echo "(примечание: «сейчас забанено» в блоке fail2ban.sh считается по записям лога за окно и может отличаться от реального бан-листа выше — известная неточность, правка в бэклоге)"
   fi
 }
 
 gen_logs() {
   local hrs="${1:-24}"
-  echo "Период: последние $hrs ч (x-ui)"
+  j() { journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null; }
+  local NERR NWRN NINF
+  NERR=$(j | grep -c "ERROR")
+  NWRN=$(j | grep -c "WARNING")
+  NINF=$(j | grep -c "INFO")
+
+  echo "═══ КРАТКО ═══"
+  echo "Период: последние $hrs ч"
+  echo "Записей по уровням: ERROR — $NERR · WARNING — $NWRN · INFO — $NINF"
+  if [ "$NERR" = "0" ]; then echo "✅ Ошибок уровня ERROR нет"; else echo "❌ Есть ERROR — полный список в разделе ниже"; fi
+  echo "Массовые WARNING про X-Forwarded-For и OCSP — штатные для схемы x-ui-pro, действий не требуют."
   echo ""
-  echo "========== СВОДКА: самые частые записи (дубли схлопнуты) =========="
-  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null \
-    | grep -E "WARNING|ERROR|error" \
+  echo "═══ ПОДРОБНО ═══"
+  echo ""
+  echo "========== СВОДКА: самые частые записи (дубли схлопнуты, количество в конце строки) =========="
+  j | grep -E "WARNING|ERROR" \
     | sed -E 's/^[A-Za-z]{3} +[0-9]+ [0-9:]{8} [^ ]+ [^:]+: //; s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/IP:PORT/g; s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/IP/g' \
-    | sort | uniq -c | sort -rn | head -20
+    | sort | uniq -c | sort -rn | head -20 \
+    | awk '{n=$1; sub(/^ *[0-9]+ /,""); printf "%s — %d раз\n", $0, n}'
   echo ""
-  echo "========== ОШИБКИ (ERROR) — все за период, до 100 =========="
-  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep -E "ERROR|error" | tail -100
+  echo "========== ОШИБКИ (уровень ERROR) — все за период, до 100 =========="
+  j | grep "ERROR" | tail -100
   echo ""
   echo "========== ПРЕДУПРЕЖДЕНИЯ (WARNING) — последние 20 сырых =========="
-  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep "WARNING" | tail -20
+  j | grep "WARNING" | tail -20
   echo ""
   echo "========== ИНФО (INFO) — последние 50 =========="
-  journalctl -u x-ui --since "$hrs hours ago" --no-pager 2>/dev/null | grep "INFO" | tail -50
-  echo ""
-  echo "Примечание: массовые повторяющиеся WARNING про X-Forwarded-For (nginx передаёт запросы в xray) и про OCSP (в сертификате не указан OCSP-сервер) — штатные для схемы x-ui-pro, действий не требуют."
+  j | grep "INFO" | tail -50
 }
 
 TYPE="$1"; HOURS="$2"
