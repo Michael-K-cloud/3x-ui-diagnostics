@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram diagnostics bot (3x-ui-diagnostics)
+Documentation=https://github.com/Michael-K-cloud/3x-ui-diagnostics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /root/scripts/tg-bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
